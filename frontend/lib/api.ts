@@ -271,18 +271,23 @@ class ApiClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = API_BASE_URL) {
-    this.baseUrl = baseUrl;
+    this.baseUrl = (baseUrl || 'http://localhost:8000').replace(/\/+$/, '');
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-    const url = `${this.baseUrl}${endpoint}`;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = `${this.baseUrl}${cleanEndpoint}`;
     try {
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        ...(options.headers as Record<string, string>),
+      };
+      if (options.body) {
+        headers['Content-Type'] = 'application/json';
+      }
       const response = await fetch(url, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
+        headers,
       });
 
       const data = await response.json();
@@ -308,8 +313,13 @@ class ApiClient {
   }
 
   async getHealth(): Promise<ApiResponse<HealthStatus>> {
+    const res = await this.request<HealthStatus>('/api/v1/health');
+    if (res.status === 'success' && res.data) {
+      return res;
+    }
     return this.request<HealthStatus>('/health');
   }
+
 
   async analyzeRequirement(requirementText: string, domainHint?: string): Promise<ApiResponse<{ analysis: RequirementAnalysis }>> {
     return this.request('/api/v1/analyze-requirement', {

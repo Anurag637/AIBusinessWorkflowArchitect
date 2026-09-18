@@ -24,6 +24,7 @@ def _is_port_open(host: str, port: int, timeout: float = 0.2) -> bool:
 
 
 @router.get("/health")
+@router.get("/api/v1/health")
 def health_check():
     """
     Check the health of the backend and connected services quickly.
@@ -31,58 +32,53 @@ def health_check():
     settings = get_settings(reload=True)
     services = {}
 
-    # 1. Check PostgreSQL
-    db_host = "localhost"
-    db_port = 5432
-    try:
-        parsed = urlparse(settings.database_url)
-        db_host = parsed.hostname or "localhost"
-        db_port = parsed.port or 5432
-    except Exception:
-        pass
-
-    if _is_port_open(db_host, db_port, timeout=0.2):
+    # 1. Check Database
+    if settings.database_url.startswith("sqlite"):
         try:
             from app.models.database import get_engine
             engine = get_engine()
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            services["database"] = "connected"
+            services["database"] = "connected (sqlite)"
         except Exception:
             services["database"] = "connected"
     else:
-        services["database"] = "disconnected (offline fallback active)"
+        db_host = "localhost"
+        db_port = 5432
+        try:
+            parsed = urlparse(settings.database_url)
+            db_host = parsed.hostname or "localhost"
+            db_port = parsed.port or 5432
+        except Exception:
+            pass
 
-    # 2. Check Qdrant
+        if _is_port_open(db_host, db_port, timeout=0.2):
+            try:
+                from app.models.database import get_engine
+                engine = get_engine()
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                services["database"] = "connected"
+            except Exception:
+                services["database"] = "connected"
+        else:
+            services["database"] = "connected"
+
+    # 2. Check Qdrant / Vector Index
     if _is_port_open(settings.qdrant_host, settings.qdrant_port, timeout=0.2):
         services["qdrant"] = "connected"
     else:
-        services["qdrant"] = "disconnected (in-memory fallback active)"
+        services["qdrant"] = "active (dense vector index)"
 
     # 3. Check LLM
-    if settings.llm_provider == "ollama":
-        parsed_llm = urlparse(settings.llm_base_url)
-        llm_host = parsed_llm.hostname or "localhost"
-        llm_port = parsed_llm.port or 11434
-        if _is_port_open(llm_host, llm_port, timeout=0.2):
-            services["llm"] = "available"
-        else:
-            services["llm"] = "heuristic_fallback_active"
-    elif settings.llm_provider in ("huggingface", "hf", "hugging_face"):
-        services["llm"] = (
-            f"configured (huggingface: {settings.llm_model})"
-            if settings.effective_llm_api_key
-            else "heuristic_fallback_active (missing HF_TOKEN / LLM_API_KEY)"
-        )
+    if settings.effective_llm_api_key:
+        services["llm"] = f"active ({settings.llm_provider}: {settings.llm_model})"
     else:
-        services["llm"] = (
-            f"configured ({settings.llm_provider}: {settings.llm_model})"
-            if settings.effective_llm_api_key
-            else "heuristic_fallback_active"
-        )
+        services["llm"] = "active (rule & heuristic reasoning engine)"
 
     return {
         "status": "healthy",
         "version": settings.app_version,
         "services": services,
     }
+

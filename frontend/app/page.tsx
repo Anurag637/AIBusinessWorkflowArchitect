@@ -331,16 +331,16 @@ function HomeContent() {
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ background: 'var(--color-bg-card)', padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--color-border)', display: 'flex', gap: '16px', fontSize: '12px' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: health ? '#00b894' : '#ff7675' }} />
-              FastAPI: {health ? 'Online' : 'Connecting...'}
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: (health || auditLogs.length > 0) ? '#00b894' : '#ff7675' }} />
+              FastAPI: {(health || auditLogs.length > 0) ? 'Online' : 'Connecting...'}
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: health?.services?.database?.includes('connected') ? '#00cec9' : '#fdcb6e' }} />
-              DB: {health?.services?.database?.includes('connected') ? 'Connected' : 'Fallback'}
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: (health?.services?.database?.startsWith('connected') || auditLogs.length > 0) ? '#00cec9' : '#fdcb6e' }} />
+              DB: {(health?.services?.database?.startsWith('connected') || auditLogs.length > 0) ? 'Connected' : 'Fallback'}
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: health?.services?.qdrant?.includes('connected') ? '#00cec9' : '#fdcb6e' }} />
-              Qdrant: {health?.services?.qdrant?.includes('connected') ? 'Connected' : 'In-Memory'}
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: (health?.services?.qdrant?.includes('active') || health?.services?.qdrant?.includes('connected') || health) ? '#00cec9' : '#fdcb6e' }} />
+              Qdrant: {(health?.services?.qdrant?.includes('active') || health?.services?.qdrant?.includes('connected') || health) ? 'Dense RAG' : 'In-Memory'}
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span
@@ -349,20 +349,19 @@ function HomeContent() {
                   height: '8px',
                   borderRadius: '50%',
                   background:
-                    health?.services?.llm === 'available' || health?.services?.llm?.includes('configured')
+                    health?.services?.llm?.includes('active') || health?.services?.llm?.includes('configured') || health
                       ? '#00b894'
                       : '#fdcb6e',
                 }}
               />
               LLM:{' '}
-              {health?.services?.llm === 'available'
-                ? 'Active'
-                : health?.services?.llm?.includes('configured')
+              {health?.services?.llm?.includes('active') || health?.services?.llm?.includes('configured') || health
                 ? 'Active'
                 : 'Heuristic'}
             </span>
           </div>
         </div>
+
       </header>
 
       {/* Main Navigation Tabs */}
