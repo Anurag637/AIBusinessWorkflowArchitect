@@ -86,8 +86,12 @@ class ManagerAgent:
 
     def _heuristic_decide_next_step(self, session: OrchestrationSession) -> Dict[str, Any]:
         """
-        Intelligent heuristic supervisor ensuring seamless autonomous loop
-        even when running offline or without an active LLM provider.
+        Intelligent multi-domain heuristic supervisor supporting:
+        - Customer Order Refunds
+        - Travel & Expense Reimbursements
+        - Cloud Infrastructure & Security Access
+        - Equipment & Laptop Procurement
+        - Dynamic general business requests
         """
         ctx = session.accumulated_context
         goal_lower = session.goal.lower()
@@ -97,116 +101,392 @@ class ManagerAgent:
             for s in steps if s.action_taken
         }
 
-        # Step 1: Request & Employee details needed?
-        if "data.get_request_details" not in completed_actions and ("laptop" in goal_lower or "request" in goal_lower or "purchase" in goal_lower or "item" in goal_lower):
-            req_id = ctx.get("request_id", "req_high_value" if any(w in goal_lower for w in ["macbook", "pro", "high", "70000", "85000"]) else "req_standard")
-            return {
-                "thought": "I first need to fetch the request and employee details to understand item category and cost.",
-                "specialist": "data",
-                "action": "get_request_details",
-                "parameters": {"request_id": req_id},
-                "is_finished": False,
-            }
+        # ── Detect Domain & Context ─────────────────────────────────────────
+        is_refund = any(w in goal_lower for w in ["refund", "return", "cancel order", "order"])
+        is_travel = any(w in goal_lower for w in ["travel", "expense", "reimbursement", "hotel", "flight", "per diem"])
+        is_cloud = any(w in goal_lower for w in ["cloud", "database", "access", "production", "permission", "security", "iam", "vpn"])
+        is_invoice = any(w in goal_lower for w in ["invoice", "vendor", "supplier", "billing", "contractor"])
+        is_equipment = any(w in goal_lower for w in ["macbook", "laptop", "monitor", "hardware", "device", "procure", "equipment", "dell"])
 
-        # Step 2: Employee profile needed?
-        if "data.get_employee" not in completed_actions and "employee" in ctx.get("request_details", {}):
+        # Extract any explicitly stated monetary cost/amount
+        cost_matches = re.findall(r"(?:₹|\$|rs\.?|inr|usd)?\s*([0-9]+(?:,[0-9]+)*)", session.goal, re.IGNORECASE)
+        user_cost: Optional[int] = None
+        if cost_matches:
+            raw_c = cost_matches[0].replace(",", "")
+            if raw_c.isdigit() and int(raw_c) > 0:
+                user_cost = int(raw_c)
+
+        # Dynamic fallback item name from goal if custom
+        clean_goal_item = session.goal.split(".")[0].strip()
+        if len(clean_goal_item) > 40:
+            clean_goal_item = clean_goal_item[:37] + "..."
+
+        # ── Step 1: Data Retrieval ──────────────────────────────────────────
+        if "data.get_request_details" not in completed_actions:
+            if is_refund:
+                amt = user_cost or 15000
+                return {
+                    "thought": "I first need to retrieve the customer order details and purchase record to verify item eligibility and amount.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": "ord_refund_8821", "item": "Customer Order #ORD-8821", "cost": amt},
+                    "is_finished": False,
+                }
+            elif is_travel:
+                amt = user_cost or 18000
+                return {
+                    "thought": "I first need to fetch the submitted travel receipts and expense claims for review.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": "exp_claim_404", "item": "Travel & Expense Claim", "cost": amt},
+                    "is_finished": False,
+                }
+            elif is_cloud:
+                return {
+                    "thought": "I first need to fetch the access request details, database scope, and engineer credentials.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": "sec_acc_901", "item": "Production DB Access", "cost": 0},
+                    "is_finished": False,
+                }
+            elif is_invoice:
+                amt = user_cost or 60000
+                return {
+                    "thought": "I first need to retrieve the vendor invoice details, line items, and purchase order reference.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": "inv_settle_5501", "item": "Vendor Service Invoice #INV-5501", "cost": amt},
+                    "is_finished": False,
+                }
+            elif is_equipment:
+                req_id = "req_high_value" if (user_cost and user_cost >= 25000) or any(w in goal_lower for w in ["macbook", "pro", "high", "70000", "85000"]) else "req_standard"
+                return {
+                    "thought": "I first need to fetch the request and employee details to understand item category and cost.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": req_id},
+                    "is_finished": False,
+                }
+            else:
+                amt = user_cost or 25000
+                return {
+                    "thought": f"I first need to fetch the business record and parameters for '{clean_goal_item}'.",
+                    "specialist": "data",
+                    "action": "get_request_details",
+                    "parameters": {"request_id": "bus_req_101", "item": clean_goal_item, "cost": amt},
+                    "is_finished": False,
+                }
+
+        # ── Step 2: Stakeholder / User Profile ──────────────────────────────
+        if "data.get_employee" not in completed_actions and not is_refund:
             emp_id = ctx.get("request_details", {}).get("employee_id", "emp_101")
             return {
-                "thought": "I need to verify the requesting employee's profile and department permissions.",
+                "thought": "I need to verify the requesting stakeholder profile and department permissions.",
                 "specialist": "data",
                 "action": "get_employee",
                 "parameters": {"employee_id": emp_id},
                 "is_finished": False,
             }
 
-        # Step 3: Policy search via RAG needed?
+        # ── Step 3: Policy Search via RAG ───────────────────────────────────
         if "policy.search_policy" not in completed_actions:
-            item_name = ctx.get("request_details", {}).get("item", "equipment")
-            return {
-                "thought": f"Now I must query the corporate knowledge base to check the policy and spending limits for '{item_name}'.",
-                "specialist": "policy",
-                "action": "search_policy",
-                "parameters": {"query": f"{item_name} purchase limit and manager approval policy"},
-                "is_finished": False,
-            }
+            if is_refund:
+                return {
+                    "thought": "Now I must query the corporate refund policy to determine return window eligibility and authorization limits.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": "customer refund eligibility return policy authorization limit"},
+                    "is_finished": False,
+                }
+            elif is_travel:
+                return {
+                    "thought": "Now I must query the corporate travel policy to check per diem and expense limits.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": "travel expense reimbursement per diem manager sign-off"},
+                    "is_finished": False,
+                }
+            elif is_cloud:
+                return {
+                    "thought": "Now I must query security and compliance policies for production database access protocols.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": "production database access security compliance approval policy"},
+                    "is_finished": False,
+                }
+            elif is_invoice:
+                return {
+                    "thought": "Now I must query the procurement and payment policy for vendor invoice approval limits.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": "vendor invoice 3-way matching and spending approval limits"},
+                    "is_finished": False,
+                }
+            elif is_equipment:
+                item_name = ctx.get("request_details", {}).get("item", "equipment")
+                return {
+                    "thought": f"Now I must query the corporate knowledge base to check the policy and spending limits for '{item_name}'.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": f"{item_name} purchase limit and manager approval policy"},
+                    "is_finished": False,
+                }
+            else:
+                return {
+                    "thought": f"Now I must query the compliance policy knowledge base for rules governing '{clean_goal_item}'.",
+                    "specialist": "policy",
+                    "action": "search_policy",
+                    "parameters": {"query": f"{clean_goal_item} approval criteria and policy rules"},
+                    "is_finished": False,
+                }
 
-        # Step 4: Compliance evaluation
+        # ── Step 4: Compliance Evaluation ───────────────────────────────────
         if "policy.evaluate_compliance" not in completed_actions:
-            req_cost = ctx.get("request_details", {}).get("cost", 25000)
-            # Check if user explicitly mentioned cost in goal
-            cost_matches = re.findall(r"(?:₹|\$|rs\.?|inr|usd)?\s*([0-9]+(?:,[0-9]+)*)", session.goal, re.IGNORECASE)
-            if cost_matches:
-                raw_c = cost_matches[0].replace(",", "")
-                if raw_c.isdigit():
-                    req_cost = int(raw_c)
+            if is_refund:
+                req_cost = user_cost or ctx.get("request_details", {}).get("cost", 15000)
+                thresh = 10000
+                return {
+                    "thought": f"I will evaluate if the refund amount (₹{req_cost:,}) complies with direct customer support limits (₹{thresh:,}) or requires manager sign-off.",
+                    "specialist": "policy",
+                    "action": "evaluate_compliance",
+                    "parameters": {"cost": req_cost, "threshold": thresh},
+                    "is_finished": False,
+                }
+            elif is_travel:
+                req_cost = user_cost or ctx.get("request_details", {}).get("cost", 18000)
+                thresh = 10000
+                return {
+                    "thought": f"I will evaluate if the travel expense claim (₹{req_cost:,}) complies with standard limits or requires department head approval.",
+                    "specialist": "policy",
+                    "action": "evaluate_compliance",
+                    "parameters": {"cost": req_cost, "threshold": thresh},
+                    "is_finished": False,
+                }
+            elif is_cloud:
+                return {
+                    "thought": "I will evaluate production access request against compliance controls requiring security lead authorization.",
+                    "specialist": "policy",
+                    "action": "evaluate_compliance",
+                    "parameters": {"cost": 50000, "threshold": 25000},
+                    "is_finished": False,
+                }
+            elif is_invoice:
+                req_cost = user_cost or ctx.get("request_details", {}).get("cost", 60000)
+                thresh = 50000
+                return {
+                    "thought": f"I will evaluate if the invoice amount (₹{req_cost:,}) complies with standard payment thresholds or requires director approval.",
+                    "specialist": "policy",
+                    "action": "evaluate_compliance",
+                    "parameters": {"cost": req_cost, "threshold": thresh},
+                    "is_finished": False,
+                }
+            else:
+                req_cost = user_cost or ctx.get("request_details", {}).get("cost", 25000)
+                return {
+                    "thought": f"I will evaluate if the request value (₹{req_cost:,}) complies with standard limits or requires approval.",
+                    "specialist": "policy",
+                    "action": "evaluate_compliance",
+                    "parameters": {"cost": req_cost, "threshold": 25000},
+                    "is_finished": False,
+                }
 
-            return {
-                "thought": f"I will evaluate if the item cost ₹{req_cost:,} complies with standard limits or requires approval.",
-                "specialist": "policy",
-                "action": "evaluate_compliance",
-                "parameters": {"cost": req_cost, "threshold": 25000},
-                "is_finished": False,
-            }
-
-        # Step 5: Approval needed?
-        requires_appr = ctx.get("compliance_info", {}).get("requires_approval", False)
-        cost_val = ctx.get("compliance_info", {}).get("cost", 0)
+        # ── Step 5: Approval Needed? ────────────────────────────────────────
+        requires_appr = ctx.get("compliance_info", {}).get("requires_approval", True)
+        cost_val = ctx.get("compliance_info", {}).get("cost", user_cost or 25000)
         has_approval_step = "approval.request_human_approval" in completed_actions
         approval_granted = ctx.get("approval_status") == "approved" or ctx.get("approval_decision") == "approved"
 
         if requires_appr and not has_approval_step and not approval_granted:
-            item_name = ctx.get("request_details", {}).get("item", "Equipment")
-            return {
-                "thought": f"The cost (₹{cost_val:,}) exceeds policy threshold (₹25,000). I must route for Human Manager approval.",
-                "specialist": "approval",
-                "action": "request_human_approval",
-                "parameters": {
-                    "approver_role": "manager",
-                    "summary": f"Sign-off required for {item_name} (Cost: ₹{cost_val:,}) for {ctx.get('employee', {}).get('name', 'Employee')}",
-                },
-                "is_finished": False,
-            }
+            if is_refund:
+                return {
+                    "thought": f"The refund amount (₹{cost_val:,}) exceeds the standard support threshold. I must route for Finance/Operations Manager sign-off.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "finance_manager",
+                        "summary": f"Customer Refund Approval required for Order #ORD-8821 (Amount: ₹{cost_val:,})",
+                    },
+                    "is_finished": False,
+                }
+            elif is_travel:
+                return {
+                    "thought": f"The expense amount (₹{cost_val:,}) exceeds standard limit. I must route for Department Head approval.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "department_head",
+                        "summary": f"Travel Expense Sign-off required (Amount: ₹{cost_val:,}) for {ctx.get('employee', {}).get('name', 'Employee')}",
+                    },
+                    "is_finished": False,
+                }
+            elif is_cloud:
+                return {
+                    "thought": "Production access grants elevated privileges. I must route for Security Team Lead authorization.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "security_lead",
+                        "summary": "Production Database Access Authorization for Engineer",
+                    },
+                    "is_finished": False,
+                }
+            elif is_invoice:
+                return {
+                    "thought": f"Invoice amount (₹{cost_val:,}) requires formal Finance Director approval prior to disbursement.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "finance_director",
+                        "summary": f"Vendor Invoice Payment Release Sign-off (Amount: ₹{cost_val:,})",
+                    },
+                    "is_finished": False,
+                }
+            elif is_equipment:
+                item_name = ctx.get("request_details", {}).get("item", "Equipment")
+                return {
+                    "thought": f"The cost (₹{cost_val:,}) exceeds policy threshold (₹25,000). I must route for Human Manager approval.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "manager",
+                        "summary": f"Sign-off required for {item_name} (Cost: ₹{cost_val:,}) for {ctx.get('employee', {}).get('name', 'Employee')}",
+                    },
+                    "is_finished": False,
+                }
+            else:
+                item_name = ctx.get("request_details", {}).get("item", clean_goal_item)
+                return {
+                    "thought": f"The value (₹{cost_val:,}) exceeds standard limit. I must route for Managerial sign-off.",
+                    "specialist": "approval",
+                    "action": "request_human_approval",
+                    "parameters": {
+                        "approver_role": "manager",
+                        "summary": f"Sign-off required for {item_name} (Value: ₹{cost_val:,})",
+                    },
+                    "is_finished": False,
+                }
 
-        # Step 6: Post-approval / fulfillment action (e.g. notify IT team)
+        # ── Step 6: Post-Approval Action / Notification ──────────────────────
         if "action.send_notification" not in completed_actions:
-            item_name = ctx.get("request_details", {}).get("item", "Equipment")
-            emp_name = ctx.get("employee", {}).get("name", "Employee")
-            return {
-                "thought": "All checks and required approvals are satisfied. I am notifying the IT Fulfillment team to provision the equipment.",
-                "specialist": "action",
-                "action": "send_notification",
-                "parameters": {
-                    "recipient": "it_fulfillment@techcorp.io",
-                    "subject": f"Procure & Provision {item_name} for {emp_name}",
-                    "message": f"Approved request for {item_name} (Cost: ₹{cost_val:,}) is ready for immediate IT fulfillment.",
-                },
-                "is_finished": False,
-            }
+            if is_refund:
+                return {
+                    "thought": "All refund checks and approvals are satisfied. I am notifying the customer and payment gateway to disburse the refund.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "customer@email.com",
+                        "subject": "Refund Approved & Processed for Order #ORD-8821",
+                        "message": f"Your refund request for ₹{cost_val:,} has been approved and processed to your original payment method.",
+                    },
+                    "is_finished": False,
+                }
+            elif is_travel:
+                return {
+                    "thought": "All expense verifications and approvals are complete. Notifying payroll/finance to credit reimbursement.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "finance_disbursements@techcorp.io",
+                        "subject": f"Disburse Travel Reimbursement for {ctx.get('employee', {}).get('name', 'Employee')}",
+                        "message": f"Expense claim for ₹{cost_val:,} is approved for payout.",
+                    },
+                    "is_finished": False,
+                }
+            elif is_cloud:
+                return {
+                    "thought": "Security authorization verified. Notifying Infrastructure & IAM team to provision scoped access.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "devops_iam@techcorp.io",
+                        "subject": "Provision Production Database Access",
+                        "message": "Security sign-off confirmed. Access granted with 24-hour audit logging enabled.",
+                    },
+                    "is_finished": False,
+                }
+            elif is_invoice:
+                return {
+                    "thought": "Invoice approval verified. Notifying Accounts Payable to release payment to vendor.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "accounts_payable@techcorp.io",
+                        "subject": "Release Vendor Payment for Invoice #INV-5501",
+                        "message": f"Approved payment release of ₹{cost_val:,} to vendor.",
+                    },
+                    "is_finished": False,
+                }
+            elif is_equipment:
+                item_name = ctx.get("request_details", {}).get("item", "Equipment")
+                emp_name = ctx.get("employee", {}).get("name", "Employee")
+                return {
+                    "thought": "All checks and required approvals are satisfied. I am notifying the IT Fulfillment team to provision the equipment.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "it_fulfillment@techcorp.io",
+                        "subject": f"Procure & Provision {item_name} for {emp_name}",
+                        "message": f"Approved request for {item_name} (Cost: ₹{cost_val:,}) is ready for immediate IT fulfillment.",
+                    },
+                    "is_finished": False,
+                }
+            else:
+                item_name = ctx.get("request_details", {}).get("item", clean_goal_item)
+                return {
+                    "thought": "All validations and required approvals are satisfied. Notifying operations team to execute.",
+                    "specialist": "action",
+                    "action": "send_notification",
+                    "parameters": {
+                        "recipient": "operations@techcorp.io",
+                        "subject": f"Execute & Fulfill: {item_name}",
+                        "message": f"Request for {item_name} (Value: ₹{cost_val:,}) is approved and authorized for execution.",
+                    },
+                    "is_finished": False,
+                }
 
-        # Step 7: Record final decision in DB
+        # ── Step 7: Record Final Decision in Database ────────────────────────
         if "action.record_decision" not in completed_actions:
-            req_id = ctx.get("request_details", {}).get("request_id", ctx.get("request_id", "req_standard"))
+            rec_id = "ord_refund_8821" if is_refund else ("exp_claim_404" if is_travel else ("sec_acc_901" if is_cloud else ("inv_settle_5501" if is_invoice else "req_standard")))
+            policy_name = "refund_policy.md" if is_refund else ("travel_policy.md" if is_travel else ("security_policy.md" if is_cloud else ("procurement_policy.md" if is_invoice else "company_handbook.md")))
             return {
-                "thought": "I will persist the finalized decision and audit record into the business database.",
+                "thought": "I will persist the finalized decision, transaction reference, and immutable audit record into the business database.",
                 "specialist": "action",
                 "action": "record_decision",
                 "parameters": {
-                    "request_id": req_id,
-                    "decision": "approved_and_fulfilled",
-                    "policy_reference": ctx.get("policy_info", {}).get("source", "equipment_policy.md"),
+                    "request_id": rec_id,
+                    "decision": "approved_and_processed",
+                    "policy_reference": policy_name,
                 },
                 "is_finished": False,
             }
 
-        # Step 8: Completion
+        # ── Step 8: Completion ──────────────────────────────────────────────
+        final_summary_text = (
+            f"Successfully processed Customer Order Refund (Amount: ₹{cost_val:,}). Policy eligibility confirmed, manager approval granted, and customer notification dispatched."
+            if is_refund
+            else (
+                f"Successfully processed Travel Expense Claim (Amount: ₹{cost_val:,}). Compliance verified, department head approval obtained, and reimbursement sent to finance."
+                if is_travel
+                else (
+                    "Successfully processed Cloud Access Request. Security authorization granted, IAM team notified, and audit logging initiated."
+                    if is_cloud
+                    else (
+                        f"Successfully processed Vendor Invoice Settlement (Amount: ₹{cost_val:,}). 3-way match verified, director approval obtained, and payment released."
+                        if is_invoice
+                        else f"Successfully processed request for {ctx.get('employee', {}).get('name', 'Employee')} ({ctx.get('request_details', {}).get('item', clean_goal_item)}). Policy verified, managerial governance satisfied, and execution notification dispatched."
+                    )
+                )
+            )
+        )
         return {
             "thought": "All necessary verification, policy validation, approvals, and dispatch actions have been verified successfully. Goal is complete.",
             "specialist": "manager",
             "action": "finish_goal",
             "parameters": {},
             "is_finished": True,
-            "final_summary": f"Successfully processed request for {ctx.get('employee', {}).get('name', 'Employee')} ({ctx.get('request_details', {}).get('item', 'Item')}). Policy verified, managerial governance satisfied, and IT notification dispatched.",
+            "final_summary": final_summary_text,
         }
+
 
     def _decide_next_step(self, session: OrchestrationSession) -> Dict[str, Any]:
         """Queries LLM for supervisor decision or falls back to heuristic engine."""

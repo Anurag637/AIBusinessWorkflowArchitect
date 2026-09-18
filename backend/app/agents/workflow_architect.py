@@ -46,10 +46,11 @@ def build_canonical_workflow(
 ) -> Dict[str, Any]:
     """
     Constructs a structurally complete, strictly compliant WorkflowDefinition
-    directly aligning with docs/workflow-schema.md.
+    dynamically tailored to any arbitrary business goal.
     """
     wf_id = f"wf-{uuid.uuid4().hex[:8]}"
-    goal = analysis_dict.get("business_goal", "Equipment Request Approval")
+    goal = analysis_dict.get("business_goal", "Business Process Execution")
+    goal_lower = f"{goal} {analysis_dict.get('trigger_event', '')}".lower()
     approvals = analysis_dict.get("approval_requirements", [])
     has_approval = len(approvals) > 0
 
@@ -62,15 +63,64 @@ def build_canonical_workflow(
             threshold = int(matches[0])
             break
 
+    # Domain-specific adaptation
+    if any(w in goal_lower for w in ["refund", "return", "cancel order", "order"]):
+        entity_name = "Customer Order"
+        policy_query = "customer return and refund eligibility policy threshold"
+        decision_desc = f"Check if refund amount is below direct approval threshold of ₹{threshold:,}"
+        notif_recipient = "customer_support"
+        notif_subject = "Order Refund Processed Successfully"
+        notif_msg = "The customer refund has been authorized and dispatched to payment gateway."
+        default_approver = "finance_manager"
+        domain_name = "customer_support"
+    elif any(w in goal_lower for w in ["travel", "expense", "reimbursement", "hotel", "flight"]):
+        entity_name = "Travel Expense Claim"
+        policy_query = "corporate travel expense reimbursement per diem limit"
+        decision_desc = f"Check if travel expense is below manager approval threshold of ₹{threshold:,}"
+        notif_recipient = "finance_payroll"
+        notif_subject = "Travel Expense Reimbursement Approved"
+        notif_msg = "The travel expense claim is approved and routed for payroll disbursement."
+        default_approver = "department_head"
+        domain_name = "finance"
+    elif any(w in goal_lower for w in ["cloud", "database", "access", "permission", "security", "iam"]):
+        entity_name = "Cloud Access Request"
+        policy_query = "production database access security compliance approval policy"
+        decision_desc = "Check if requested resource requires security lead authorization"
+        notif_recipient = "devops_iam"
+        notif_subject = "Production Database Access Granted"
+        notif_msg = "Security review complete. Temporary IAM access credentials granted."
+        default_approver = "security_lead"
+        domain_name = "security"
+    elif any(w in goal_lower for w in ["invoice", "vendor", "supplier", "billing"]):
+        entity_name = "Vendor Invoice"
+        policy_query = "vendor invoice payment 3-way matching and approval threshold"
+        decision_desc = f"Check if invoice total is below payment threshold of ₹{threshold:,}"
+        notif_recipient = "accounts_payable"
+        notif_subject = "Vendor Invoice Cleared for Payment"
+        notif_msg = "Invoice verified against purchase order and cleared for release."
+        default_approver = "finance_director"
+        domain_name = "procurement"
+    else:
+        entity_name = "Business Request"
+        policy_query = f"{goal[:50]} compliance and authorization rules"
+        decision_desc = f"Check if request is below approval threshold of ₹{threshold:,}"
+        notif_recipient = "operations_team"
+        notif_subject = f"Business Request Approved & Fulfilled"
+        notif_msg = f"Request for {goal[:50]} has been verified and processed."
+        default_approver = "manager"
+        domain_name = "operations"
+
+    approver_role = approvals[0].get("role", default_approver) if approvals else default_approver
+
     # Build steps
     steps = [
         {
             "id": "step_1",
-            "name": "Retrieve Equipment Request",
+            "name": f"Retrieve {entity_name}",
             "type": StepType.DATABASE.value,
             "tool": "database",
             "action": "get_equipment_request",
-            "description": "Fetch equipment request details from database",
+            "description": f"Fetch {entity_name} details and records from business database",
             "inputs": {"request_id": "{{trigger.request_id}}"},
             "outputs": ["request_details"],
             "dependencies": ["trigger_1"],
@@ -79,21 +129,21 @@ def build_canonical_workflow(
         },
         {
             "id": "step_2",
-            "name": "Check Equipment Policy",
+            "name": "Check Corporate Policy",
             "type": StepType.RAG.value,
             "tool": "rag",
             "action": "search_knowledge",
-            "description": "Retrieve equipment approval policy guidelines",
-            "inputs": {"query": "equipment spending limit policy"},
+            "description": f"Retrieve policy guidelines and compliance criteria via RAG",
+            "inputs": {"query": policy_query},
             "outputs": ["policy_info"],
             "dependencies": ["step_1"],
             "timeout_seconds": 30,
         },
         {
             "id": "step_3",
-            "name": "Evaluate Cost Threshold",
+            "name": "Evaluate Approval Threshold",
             "type": StepType.DECISION.value,
-            "description": f"Check if equipment cost is below approval threshold of {threshold}",
+            "description": decision_desc,
             "condition": f"request_details.cost < {threshold}",
             "if_true": "step_4",
             "if_false": "step_5" if has_approval else "step_4",
@@ -102,15 +152,15 @@ def build_canonical_workflow(
         },
         {
             "id": "step_4",
-            "name": "Notify IT Team",
+            "name": "Dispatch Operational Notification",
             "type": StepType.NOTIFICATION.value,
             "tool": "notification",
             "action": "create_notification",
-            "description": "Notify IT team to process the equipment request",
+            "description": f"Notify {notif_recipient} to process fulfillment",
             "inputs": {
-                "recipient": "it_team",
-                "subject": "Equipment Request Ready for Processing",
-                "message": "Equipment request is policy-verified and ready for processing.",
+                "recipient": notif_recipient,
+                "subject": notif_subject,
+                "message": notif_msg,
             },
             "outputs": ["notification_result"],
             "dependencies": ["step_3"],
@@ -123,14 +173,14 @@ def build_canonical_workflow(
     if has_approval:
         steps.append({
             "id": "step_5",
-            "name": "Request Manager Approval",
+            "name": f"Request {approver_role.replace('_', ' ').title()} Sign-off",
             "type": StepType.APPROVAL.value,
             "tool": "approval",
             "action": "request_approval",
-            "description": "Request manager approval for high-value equipment",
-            "approver_role": approvals[0].get("role", "manager"),
+            "description": f"Request {approver_role} sign-off when threshold criteria is met",
+            "approver_role": approver_role,
             "inputs": {
-                "request_summary": "Equipment request exceeds standard policy threshold",
+                "request_summary": f"{entity_name} exceeds standard policy threshold of ₹{threshold:,}",
             },
             "outputs": ["approval_result"],
             "dependencies": ["step_3"],
@@ -141,14 +191,14 @@ def build_canonical_workflow(
     steps.extend([
         {
             "id": "step_6",
-            "name": "Record Decision",
+            "name": "Record Audit Decision",
             "type": StepType.DATABASE.value,
             "tool": "database",
             "action": "record_decision",
-            "description": "Record final decision state into database",
+            "description": "Record final decision state and immutable audit trail into database",
             "inputs": {
                 "request_id": "{{trigger.request_id}}",
-                "decision": "approved",
+                "decision": "approved_and_processed",
             },
             "outputs": ["decision_record"],
             "dependencies": last_dependencies,
@@ -168,9 +218,24 @@ def build_canonical_workflow(
     if has_approval:
         required_approvals.append({
             "step_id": "step_5",
-            "approver_role": approvals[0].get("role", "manager"),
-            "condition": f"Equipment cost exceeds {threshold}",
+            "approver_role": approver_role,
+            "condition": f"Value exceeds ₹{threshold:,}",
         })
+
+    # Prepare inputs from analysis
+    wf_inputs = []
+    for inp in analysis_dict.get("inputs", []):
+        wf_inputs.append({
+            "name": inp.get("name", "request_id"),
+            "type": inp.get("type", "string"),
+            "required": inp.get("required", True),
+            "description": inp.get("description", "Input field"),
+        })
+    if not wf_inputs:
+        wf_inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Request identifier"},
+            {"name": "cost", "type": "number", "required": False, "description": "Transaction or asset value"},
+        ]
 
     return {
         "workflow_id": wf_id,
@@ -180,18 +245,15 @@ def build_canonical_workflow(
         "trigger": {
             "id": "trigger_1",
             "type": StepType.TRIGGER.value,
-            "event": analysis_dict.get("trigger_event", "equipment_request_created"),
-            "description": "Employee initiates request",
-            "outputs": ["request_id", "employee_id"],
+            "event": analysis_dict.get("trigger_event", "business_request_created"),
+            "description": analysis_dict.get("trigger_description", "Initiate business process"),
+            "outputs": [i["name"] for i in wf_inputs],
         },
-        "inputs": [
-            {"name": "request_id", "type": "string", "required": True, "description": "Request identifier"},
-            {"name": "employee_id", "type": "string", "required": True, "description": "Employee identifier"},
-        ],
+        "inputs": wf_inputs,
         "steps": steps,
         "metadata": {
             "created_by": "workflow_architect_agent",
-            "domain": "procurement",
+            "domain": domain_name,
             "estimated_duration_seconds": 300 if has_approval else 60,
         },
         "required_approvals": required_approvals,

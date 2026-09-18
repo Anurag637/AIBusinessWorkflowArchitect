@@ -82,76 +82,158 @@ def heuristic_analyze(text: str, domain_hint: Optional[str] = None) -> Dict[str,
     """
     lower = text.lower()
 
-    # Detect domain
-    domain = domain_hint or ("equipment_procurement" if any(w in lower for w in ["laptop", "equipment", "hardware", "device"]) else "general_business")
-
     # Detect numbers / thresholds
     cost_matches = re.findall(r"(?:₹|\$|rs\.?|inr|usd)?\s*([0-9]+(?:,[0-9]+)*)", text, re.IGNORECASE)
-    threshold = 25000
+    user_num = None
     if cost_matches:
         raw_num = cost_matches[0].replace(",", "")
-        if raw_num.isdigit():
-            threshold = int(raw_num)
+        if raw_num.isdigit() and int(raw_num) > 0:
+            user_num = int(raw_num)
 
-    # Detect actors
-    actors: List[Dict[str, Any]] = []
-    if "employee" in lower or "user" in lower:
-        actors.append({"role": "employee", "type": "human", "responsibilities": ["Initiates request"]})
-    if "it" in lower or "it team" in lower or "it staff" in lower:
-        actors.append({"role": "it_team", "type": "human", "responsibilities": ["Process and fulfill request"]})
-    if "manager" in lower or "supervisor" in lower or "lead" in lower:
-        actors.append({"role": "manager", "type": "human", "responsibilities": ["Approve conditional requests"]})
-    if "finance" in lower:
-        actors.append({"role": "finance", "type": "human", "responsibilities": ["Disburse funds"]})
-    if not actors:
-        actors.append({"role": "user", "type": "human", "responsibilities": ["Primary actor"]})
+    # Detect domain, actors, trigger, and inputs
+    if any(w in lower for w in ["refund", "return", "cancel order", "order"]):
+        domain = "customer_order_refund"
+        trigger_event = "customer_refund_requested"
+        trigger_description = "Customer submits an order refund or return request"
+        threshold = user_num or 10000
+        inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Order or refund reference ID"},
+            {"name": "customer_id", "type": "string", "required": True, "description": "Customer account identifier"},
+            {"name": "cost", "type": "number", "required": False, "description": "Refund amount requested"},
+        ]
+        actors = [
+            {"role": "customer", "type": "human", "responsibilities": ["Submits refund request"]},
+            {"role": "customer_support", "type": "human", "responsibilities": ["Verifies return eligibility & policy"]},
+            {"role": "finance_manager", "type": "human", "responsibilities": ["Approves high-value refunds"]},
+        ]
+        approver_role = "finance_manager"
+        approver_rationale = f"Refund amount exceeds direct support threshold of ₹{threshold:,}"
+        entities = ["customer_order", "refund_policy", "gateway_transaction", "audit_log"]
+
+    elif any(w in lower for w in ["travel", "expense", "reimbursement", "hotel", "flight", "per diem"]):
+        domain = "travel_expense_claim"
+        trigger_event = "expense_claim_submitted"
+        trigger_description = "Employee files a travel and expense claim with receipts"
+        threshold = user_num or 10000
+        inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Expense claim identifier"},
+            {"name": "employee_id", "type": "string", "required": True, "description": "Employee ID"},
+            {"name": "cost", "type": "number", "required": False, "description": "Total claim reimbursement amount"},
+        ]
+        actors = [
+            {"role": "employee", "type": "human", "responsibilities": ["Submits receipts and itinerary"]},
+            {"role": "department_head", "type": "human", "responsibilities": ["Reviews and approves claim"]},
+            {"role": "finance_payroll", "type": "human", "responsibilities": ["Disburses reimbursement"]},
+        ]
+        approver_role = "department_head"
+        approver_rationale = f"Expense exceeds standard per diem limit of ₹{threshold:,}"
+        entities = ["expense_report", "travel_policy", "payout_record", "audit_log"]
+
+    elif any(w in lower for w in ["cloud", "database", "access", "permission", "security", "iam", "vpn"]):
+        domain = "security_access_control"
+        trigger_event = "access_request_submitted"
+        trigger_description = "Engineer requests privileged cloud infrastructure or database access"
+        threshold = user_num or 25000
+        inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Access ticket identifier"},
+            {"name": "employee_id", "type": "string", "required": True, "description": "Requesting engineer ID"},
+            {"name": "cost", "type": "number", "required": False, "description": "Resource tier / cost rating"},
+        ]
+        actors = [
+            {"role": "engineer", "type": "human", "responsibilities": ["Submits access justification"]},
+            {"role": "security_lead", "type": "human", "responsibilities": ["Evaluates compliance and authorizes role"]},
+            {"role": "devops_iam", "type": "human", "responsibilities": ["Provisions temporary access keys"]},
+        ]
+        approver_role = "security_lead"
+        approver_rationale = "Privileged database access requires formal security sign-off"
+        entities = ["iam_role", "security_policy", "access_grant", "audit_log"]
+
+    elif any(w in lower for w in ["invoice", "vendor", "supplier", "billing", "contractor"]):
+        domain = "vendor_invoice_settlement"
+        trigger_event = "vendor_invoice_submitted"
+        trigger_description = "Vendor or contractor submits invoice for delivered services"
+        threshold = user_num or 50000
+        inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Invoice number"},
+            {"name": "vendor_id", "type": "string", "required": True, "description": "Vendor account identifier"},
+            {"name": "cost", "type": "number", "required": False, "description": "Invoice total payable amount"},
+        ]
+        actors = [
+            {"role": "vendor", "type": "human", "responsibilities": ["Submits invoice documentation"]},
+            {"role": "accounts_payable", "type": "human", "responsibilities": ["Verifies 3-way match against PO"]},
+            {"role": "finance_director", "type": "human", "responsibilities": ["Authorizes fund release"]},
+        ]
+        approver_role = "finance_director"
+        approver_rationale = f"Invoice value exceeds ₹{threshold:,} threshold requiring director sign-off"
+        entities = ["invoice_record", "procurement_policy", "disbursement", "audit_log"]
+
+    else:
+        domain = domain_hint or ("equipment_procurement" if any(w in lower for w in ["laptop", "equipment", "hardware", "device", "macbook"]) else "general_business_process")
+        trigger_event = "business_request_submitted"
+        trigger_description = "User initiates a business process request"
+        threshold = user_num or 25000
+        inputs = [
+            {"name": "request_id", "type": "string", "required": True, "description": "Unique business request identifier"},
+            {"name": "employee_id", "type": "string", "required": True, "description": "Requesting stakeholder identifier"},
+            {"name": "cost", "type": "number", "required": False, "description": "Monetary or resource value"},
+        ]
+        actors = [
+            {"role": "employee", "type": "human", "responsibilities": ["Initiates request"]},
+            {"role": "manager", "type": "human", "responsibilities": ["Reviews and authorizes discretionary request"]},
+            {"role": "operations_team", "type": "human", "responsibilities": ["Executes and fulfills verified request"]},
+        ]
+        approver_role = "manager"
+        approver_rationale = f"Request value exceeds standard ₹{threshold:,} threshold"
+        entities = ["business_request", "policy_record", "fulfillment_action", "audit_log"]
 
     # Detect approvals
+    has_approval = any(w in lower for w in ["approval", "approve", "review", "sign-off", "manager", "lead", "director", "authorize"]) or threshold > 0
     approvals: List[Dict[str, Any]] = []
-    if any(w in lower for w in ["approval", "approve", "manager approval"]):
+    if has_approval:
         approvals.append({
-            "role": "manager" if "manager" in lower else "supervisor",
-            "trigger_condition": f"Cost exceeds {threshold}",
-            "rationale": "Manager approval required for expenditures above standard threshold",
+            "role": approver_role,
+            "trigger_condition": f"Value/Cost exceeds ₹{threshold:,}",
+            "rationale": approver_rationale,
         })
 
     # Detect rules
     rules: List[Dict[str, Any]] = [
         {
             "rule_id": "rule_1",
-            "description": f"If cost is below {threshold}, direct processing is allowed.",
+            "description": f"If amount/cost is below ₹{threshold:,}, automated direct processing is allowed.",
             "condition": f"cost < {threshold}",
-            "action": "Proceed with standard fulfillment",
+            "action": "Proceed with automated processing and notification",
         },
         {
             "rule_id": "rule_2",
-            "description": f"If cost exceeds or equals {threshold}, human approval is required.",
+            "description": f"If amount/cost is ₹{threshold:,} or above, human {approver_role} sign-off is mandatory.",
             "condition": f"cost >= {threshold}",
-            "action": "Route for manager approval",
+            "action": f"Route to {approver_role} for review",
         }
     ]
 
+    # Clean first sentence for concise goal
+    clean_goal = text.strip().split(".")[0].strip()
+    if len(clean_goal) < 15:
+        clean_goal = text.strip()
+
     return {
-        "business_goal": f"Automate requirement process for {domain.replace('_', ' ')}",
-        "trigger_event": "business_request_submitted",
-        "trigger_description": "User or employee submits a request",
-        "inputs": [
-            {"name": "request_id", "type": "string", "required": True, "description": "Unique request identifier"},
-            {"name": "employee_id", "type": "string", "required": True, "description": "Identifier of requesting user"},
-            {"name": "cost", "type": "number", "required": False, "description": "Monetary cost of requested item/service"}
-        ],
-        "outputs": ["approval_status", "fulfillment_notification", "audit_record"],
+        "business_goal": clean_goal,
+        "trigger_event": trigger_event,
+        "trigger_description": trigger_description,
+        "inputs": inputs,
+        "outputs": ["process_status", "action_notification", "immutable_audit_record"],
         "actors": actors,
         "business_rules": rules,
-        "data_entities": ["request", "policy", "approval_record", "notification"],
+        "data_entities": entities,
         "approval_requirements": approvals,
         "potential_exceptions": [
-            "Cost information missing or invalid",
-            "Approver unavailable / timeout",
-            "Policy document retrieval failed"
+            "Required identifiers or records not found in database",
+            "Threshold evaluation failed due to invalid cost data",
+            "Approver sign-off timeout or rejection",
         ],
         "complexity_assessment": "Moderate" if approvals else "Simple",
-        "confidence_score": 0.92,
+        "confidence_score": 0.95,
     }
 
 

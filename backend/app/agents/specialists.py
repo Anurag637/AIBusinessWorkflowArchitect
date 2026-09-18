@@ -108,10 +108,16 @@ class DataSpecialist:
 
         elif action_name == "get_request_details":
             req_id = params.get("request_id") or context.get("request_id", "req_standard")
+            db_inputs = {"request_id": req_id}
+            if "item" in params:
+                db_inputs["item"] = params["item"]
+            if "cost" in params:
+                db_inputs["cost"] = params["cost"]
+
             res = self.tool_registry.execute_tool(
                 tool_name="database",
                 action="get_equipment_request",
-                inputs={"request_id": req_id},
+                inputs=db_inputs,
                 context=context,
             )
             if not res.success:

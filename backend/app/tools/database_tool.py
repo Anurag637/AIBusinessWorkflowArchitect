@@ -100,22 +100,75 @@ class DatabaseTool(BaseTool):
             )
 
         elif action == "get_equipment_request":
-            req_id = inputs.get("request_id")
-            # Return high value if requested or matching, else standard
-            if req_id == "req_high_value" or "high" in str(req_id):
+            req_id = inputs.get("request_id", "req_standard")
+            if "refund" in str(req_id) or "ord" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "customer_id": "cust_991",
+                    "item": inputs.get("item", "Customer Order #ORD-8821"),
+                    "category": "refund",
+                    "cost": inputs.get("cost", 15000),
+                    "status": "pending_review",
+                }
+            elif "travel" in str(req_id) or "exp" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "employee_id": "emp_101",
+                    "item": inputs.get("item", "Travel & Expense Claim"),
+                    "category": "travel",
+                    "cost": inputs.get("cost", 18000),
+                    "status": "pending_review",
+                }
+            elif "cloud" in str(req_id) or "sec" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "employee_id": "emp_101",
+                    "item": inputs.get("item", "Production Database Access"),
+                    "category": "security_access",
+                    "cost": 0,
+                    "status": "pending_review",
+                }
+            elif "inv" in str(req_id) or "vendor" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "vendor_id": "vend_551",
+                    "item": inputs.get("item", "Vendor Service Invoice #INV-5501"),
+                    "category": "invoice",
+                    "cost": inputs.get("cost", 60000),
+                    "status": "pending_review",
+                }
+            elif "leave" in str(req_id) or "pto" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "employee_id": "emp_101",
+                    "item": inputs.get("item", "Annual Leave Request"),
+                    "category": "hr_leave",
+                    "cost": 0,
+                    "status": "pending_review",
+                }
+            elif "loan" in str(req_id) or "credit" in str(req_id):
+                req = {
+                    "request_id": req_id,
+                    "customer_id": "cust_882",
+                    "item": inputs.get("item", "Customer Loan Application"),
+                    "category": "financial_loan",
+                    "cost": inputs.get("cost", 150000),
+                    "status": "pending_review",
+                }
+            elif req_id == "req_high_value" or "high" in str(req_id):
                 req = dict(MOCK_EQUIPMENT_REQUESTS["req_high_value"])
             elif req_id in MOCK_EQUIPMENT_REQUESTS:
                 req = dict(MOCK_EQUIPMENT_REQUESTS[req_id])
             else:
-                # Default fallback request
                 req = {
                     "request_id": req_id,
                     "employee_id": "emp_101",
-                    "item": "Dell Latitude 5540 Laptop",
-                    "category": "laptop",
-                    "cost": 22000,
+                    "item": inputs.get("item", "Business Operational Request"),
+                    "category": inputs.get("category", "general_procurement"),
+                    "cost": inputs.get("cost", 22000),
                     "status": "pending_review",
                 }
+
 
             # Merge cost from trigger/initial_inputs if provided by the user
             # This ensures DECISION conditions evaluate the user's actual cost
