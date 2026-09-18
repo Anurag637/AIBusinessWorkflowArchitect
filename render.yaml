@@ -1,0 +1,64 @@
+# Render Blueprint — One-click deploy for AI Business Workflow Architect
+# Docs: https://docs.render.com/blueprints
+
+services:
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  - type: web
+    name: workflow-architect-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Database (auto-connected from the database below)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: workflow-architect-db
+          property: connectionString
+      # LLM Configuration
+      - key: LLM_PROVIDER
+        value: huggingface
+      - key: LLM_MODEL
+        value: Qwen/Qwen2.5-Coder-32B-Instruct
+      - key: LLM_BASE_URL
+        value: https://router.huggingface.co/hf-inference/v1
+      - key: LLM_API_KEY
+        sync: false  # Set manually in Render Dashboard
+      - key: LLM_TEMPERATURE
+        value: "0.1"
+      - key: LLM_MAX_TOKENS
+        value: "4096"
+      # Embedding (uses built-in dense embeddings, no external API needed)
+      - key: EMBEDDING_PROVIDER
+        value: dense
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      # Qdrant (in-memory fallback — no external server needed)
+      - key: QDRANT_HOST
+        value: localhost
+      - key: QDRANT_PORT
+        value: "6333"
+      - key: QDRANT_COLLECTION
+        value: company_knowledge
+      # Backend Settings
+      - key: BACKEND_HOST
+        value: "0.0.0.0"
+      - key: BACKEND_PORT
+        value: "8000"
+      - key: BACKEND_DEBUG
+        value: "false"
+      - key: BACKEND_LOG_LEVEL
+        value: INFO
+      - key: SECRET_KEY
+        generateValue: true
+      # CORS — Update with your Vercel URL after frontend deploy
+      - key: CORS_ORIGINS
+        value: "http://localhost:3000,https://your-app.vercel.app"
+
+  # ── PostgreSQL Database ─────────────────────────────────────────────────────
+databases:
+  - name: workflow-architect-db
+    plan: free
+    databaseName: workflow_architect
+    user: workflow_user

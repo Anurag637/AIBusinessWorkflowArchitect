@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Python
+backend/*.db
+backend/*.sqlite3
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Alembic
+backend/alembic/versions/__pycache__/
+
+# Qdrant data
+qdrant_data/
+
+# PostgreSQL data
+postgres_data/
