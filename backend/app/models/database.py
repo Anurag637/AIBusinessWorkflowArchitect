@@ -16,6 +16,12 @@ class Base(DeclarativeBase):
 def get_engine():
     """Create SQLAlchemy engine."""
     settings = get_settings()
+    if settings.database_url.startswith("sqlite"):
+        return create_engine(
+            settings.database_url,
+            echo=settings.debug,
+            connect_args={"check_same_thread": False},
+        )
     return create_engine(
         settings.database_url,
         echo=settings.debug,
@@ -23,6 +29,7 @@ def get_engine():
         pool_size=10,
         max_overflow=20,
     )
+
 
 
 def get_session_factory():
