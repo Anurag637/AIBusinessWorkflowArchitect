@@ -66,14 +66,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
+    # CORS — allow all Vercel domains and localhost automatically
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
+        allow_origin_regex=r"^https://.*\.vercel\.app$|^http://localhost(:\d+)?$",
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["*"],
         allow_headers=["*"],
     )
+
 
     # Error handlers
     app.add_exception_handler(AppError, app_error_handler)

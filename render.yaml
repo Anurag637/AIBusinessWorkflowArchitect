@@ -51,7 +51,8 @@ services:
         value: INFO
       - key: SECRET_KEY
         generateValue: true
-      # CORS — Update with your Vercel URL after frontend deploy
+      # CORS — Allow all Vercel domains and localhost
       - key: CORS_ORIGINS
-        value: "http://localhost:3000,https://your-app.vercel.app"
+        value: "http://localhost:3000,https://ai-business-workflow-architect.vercel.app,*"
+
 
